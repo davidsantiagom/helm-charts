@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-sched-deny-wrong-tenant
+  namespace: vcl-t001-dev
+  labels:
+    fcp/control: "CTRL-SCHED-DENY"
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: sched-verify
+      restartPolicy: Never
+      containers:
+      - name: verifier
+        image: python:3.12-alpine
+        command: ["/bin/sh","-lc"]
+        args:
+        - |
+          set -eu
+          cat << 'PY' > /verifier.py
+          import json, os, sys, ssl, urllib.request, urllib.parse
+
+          API = "https://kubernetes.default.svc"
+          NS_HOST = os.environ.get("NS_HOST", "vcl-t001-dev")
+          NS_VIRT = os.environ.get("NS_VIRT", "test")
+          EXPECT  = os.environ.get("EXPECT",  "t001")   # tenant that *should not* be hit
+
+          token = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+          ctx = ssl.create_default_context(cafile="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+
+          def get(path, params=None):
+              if params:
+                  path = f"{path}?{urllib.parse.urlencode(params)}"
+              req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
+              with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                  return json.loads(r.read().decode())
+
+          # Find the deny-test pod in host ns (synced from vcluster)
+          labels = f"vcluster.loft.sh/namespace={NS_VIRT},fcp/control=CTRL-SCHED-DENY"
+          data = get(f"/api/v1/namespaces/{NS_HOST}/pods", params={"labelSelector": labels})
+          items = data.get("items", [])
+          if not items:
+              print("No pod found for CTRL-SCHED-DENY")
+              sys.exit(2)
+
+          pod = items[0]
+          pod_name = pod["metadata"]["name"]
+          node_name = pod["spec"].get("nodeName")
+          if not node_name:
+              print(f"Pod {pod_name} has no nodeName yet (Pending)")
+              sys.exit(3)
+
+          node = get(f"/api/v1/nodes/{node_name}")
+          tenant = node.get("metadata", {}).get("labels", {}).get("tenancy.fcp.io/tenant", "")
+
+          print(f"Pod: {pod_name}")
+          print(f"Node: {node_name}")
+          print(f"Node tenancy label: {tenant}")
+
+          if tenant == EXPECT:
+              print(f"CONTROL 3 (deny) FAILED — pod landed on tenant {EXPECT}, but it should not")
+              sys.exit(1)
+          else:
+              print(f"CONTROL 3 (deny) PASSED — pod did not land on tenant {EXPECT}")
+              sys.exit(0)
+          PY
+          python /verifier.py
+        env:
+        - name: NS_HOST
+          value: "vcl-t001-dev"
+        - name: NS_VIRT
+          value: "test"
+        - name: EXPECT
+          value: "t001"

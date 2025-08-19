@@ -1,0 +1,26 @@
+# Apply INSIDE the vcluster t001 (virtual ns: test)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-sched-deny-wrong-tenant
+  namespace: test
+  labels:
+    fcp/control: "CTRL-SCHED-DENY"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 60
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        fcp/control: "CTRL-SCHED-DENY"
+    spec:
+      restartPolicy: Never
+      # WRONG ON PURPOSE: select the OTHER tenant's nodes
+      nodeSelector:
+        tenancy.fcp.io/tenant: "t002"
+      containers:
+      - name: test
+        image: busybox:1.36
+        command: ["sh","-lc"]
+        args: ["sleep 600"]  # stays Pending if isolation works

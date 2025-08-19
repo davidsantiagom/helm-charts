@@ -1,0 +1,31 @@
+# echo-t001.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: vcl-t001-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo }
+  template:
+    metadata:
+      labels: { app: echo }
+    spec:
+      containers:
+      - name: echo
+        image: registry.k8s.io/e2e-test-images/echoserver:2.5
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: vcl-t001-dev
+spec:
+  selector: { app: echo }
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080

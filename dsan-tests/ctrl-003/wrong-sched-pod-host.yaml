@@ -1,0 +1,17 @@
+# wrong-sched-host-pod.yaml  (apply on the HOST in ns vcl-t001-dev)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-sched-deny-wrong-tenant-host
+  namespace: vcl-t001-dev
+  labels:
+    fcp/control: CTRL-SCHED-DENY
+spec:
+  nodeSelector:
+    tenancy.fcp.io/tenant: "t002"   # wrong on purpose
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: busybox:1.36
+    command: ["sh","-lc"]
+    args: ["sleep 600"]

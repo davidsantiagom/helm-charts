@@ -1,0 +1,26 @@
+# This is a deployment and pod configuration for a test workload in a Kubernetes cluster.
+# It includes a deployment for an echo server and a pod for network troubleshooting.
+# The echo server listens on port 8080 and responds to HTTP requests.
+# A netshoot pod is also included for network utilities like ping and curl. 
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: echo, namespace: default }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: echo } }
+  template:
+    metadata: { labels: { app: echo } }
+    spec:
+      containers:
+      - name: echo
+        image: ealen/echo-server:0.9
+        ports: [{ containerPort: 8080 }]
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: netshoot, namespace: default, labels: { app: netshoot } }
+spec:
+  containers:
+  - name: n
+    image: nicolaka/netshoot:latest
+    command: ["sh","-c","sleep 3600"]

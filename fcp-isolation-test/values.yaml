@@ -1,0 +1,11 @@
+tenant: t002
+namespace: vcl-t002-dev        # this Job runs here
+targetNamespace: vcl-t001-dev  # curl targets this other tenant
+echoServiceName: echo
+echoPort: 80
+images:
+  curl: curlimages/curl:8.4.0
+  python: "python:3.12-alpine"
+job:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600

@@ -1,0 +1,34 @@
+# test-intra-allow-t1.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-intra-allow
+  namespace: vcl-t001-dev
+  labels:
+    fcp/control: "CTRL-NET-INTRA"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "10"              # order (verify can be 99)
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: test
+        image: curlimages/curl:8.4.0
+        command: ["/bin/sh","-lc"]
+        args:
+        - |
+          set -eu
+          URL="http://echo.vcl-t001-dev.svc.cluster.local:80/"
+          code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "$URL" || true)
+          if [ "$code" = "200" ]; then
+            echo "CONTROL 1 (intra) PASSED — HTTP 200 from $URL"
+            exit 0
+          else
+            echo "CONTROL 1 (intra) FAILED — HTTP=${code:-<none>} from $URL"
+            exit 1
+          fi
+

@@ -1,0 +1,14 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-l3l4-ingress-allow-intra-ns
+  namespace: vcl-t002-dev
+  annotations:
+    fcp/policyId: "NP-UTIL-ING-010"
+    fcp/intent: "Allow ingress from same namespace"
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}

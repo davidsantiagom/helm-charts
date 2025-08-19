@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sched-verify
+  namespace: vcl-t001-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sched-verify-read
+rules:
+- apiGroups: [""]
+  resources: ["pods","nodes"]
+  verbs: ["get","list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sched-verify-read-binding-t001
+subjects:
+- kind: ServiceAccount
+  name: sched-verify
+  namespace: vcl-t001-dev
+roleRef:
+  kind: ClusterRole
+  name: sched-verify-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-sched-verify-host
+  namespace: vcl-t001-dev
+  labels:
+    fcp/control: "CTRL-SCHED-VERIFY"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "10"              # order (verify can be 99)
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      serviceAccountName: sched-verify
+      restartPolicy: Never
+      containers:
+      - name: verifier
+        # Python stdlib only; no external fetch libs; no kubectl
+        image: python:3.12-alpine
+        command: ["/bin/sh","-lc"]
+        args:
+        - |
+          set -eu
+          cat << 'PY' > /verifier.py
+          import json, os, sys, ssl, urllib.request, urllib.parse
+
+          API = "https://kubernetes.default.svc"
+          NS_HOST = os.environ.get("NS_HOST", "vcl-t001-dev")
+          NS_VIRT = os.environ.get("NS_VIRT", "test")
+          EXPECT  = os.environ.get("EXPECT",  "t001")
+
+          token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+          ca_path    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          with open(token_path, "r") as f:
+              token = f.read().strip()
+
+          ctx = ssl.create_default_context(cafile=ca_path)
+          def get(path, params=None):
+              if params:
+                  path = f"{path}?{urllib.parse.urlencode(params)}"
+              req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
+              with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
+                  return json.loads(r.read().decode())
+
+          # 1) Find the pod created by the allow test in the host ns (synced from vcluster)
+          labels = f"vcluster.loft.sh/namespace={NS_VIRT},fcp/control=CTRL-SCHED-ALLOW"
+          data = get(f"/api/v1/namespaces/{NS_HOST}/pods", params={"labelSelector": labels})
+          items = data.get("items", [])
+          if not items:
+              print("No pod found for CTRL-SCHED-ALLOW")
+              sys.exit(2)
+
+          pod = items[0]
+          pod_name = pod["metadata"]["name"]
+          node_name = pod["spec"].get("nodeName")
+          if not node_name:
+              print(f"Pod {pod_name} has no nodeName yet (Pending)")
+              sys.exit(3)
+
+          # 2) Fetch the node and inspect the tenancy label
+          node = get(f"/api/v1/nodes/{node_name}")
+          labels = node.get("metadata", {}).get("labels", {})
+          tenant = labels.get("tenancy.fcp.io/tenant", "")
+
+          print(f"Pod: {pod_name}")
+          print(f"Node: {node_name}")
+          print(f"Node tenancy label: {tenant}")
+
+          if tenant == EXPECT:
+              print(f"CONTROL 3 (allow) PASSED — node has tenancy.fcp.io/tenant={EXPECT}")
+              sys.exit(0)
+          else:
+              print(f"CONTROL 3 (allow) FAILED — node label is '{tenant}' (expected {EXPECT})")
+              sys.exit(1)
+          PY
+          python /verifier.py
+        env:
+        - name: NS_HOST
+          value: "vcl-t001-dev"
+        - name: NS_VIRT
+          value: "test"          # the virtual namespace where you ran the allow job
+        - name: EXPECT
+          value: "t001"

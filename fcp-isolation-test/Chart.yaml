@@ -1,0 +1,31 @@
+apiVersion: v2
+name: fcp-tenant-isolation-tests
+description: Helm test suite for vCluster-based tenant isolation (network & scheduling)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+kubeVersion: ">=1.26.0-0"
+
+keywords:
+  - vcluster
+  - tenant-isolation
+  - network-policy
+  - scheduling
+  - conformance
+
+annotations:
+  category: testing
+  fcp/control-scope: "rank-1"
+  # Helm tests are implemented as hook: test Jobs in /templates
+
+maintainers:
+  - name: Platform Engineering
+    email: platform@example.com
+
+home: https://git.example.com/fcp/tenant-isolation
+sources:
+  - https://git.example.com/fcp/tenant-isolation/tests
+
+# No dependencies; jobs + RBAC only
+dependencies: []

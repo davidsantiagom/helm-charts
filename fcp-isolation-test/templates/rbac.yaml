@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sched-verify
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sched-verify-read-{{ .Values.tenant }}
+rules:
+- apiGroups: [""]
+  resources: ["pods","nodes"]
+  verbs: ["get","list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sched-verify-read-binding-{{ .Values.tenant }}
+subjects:
+- kind: ServiceAccount
+  name: sched-verify
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sched-verify-read-{{ .Values.tenant }}

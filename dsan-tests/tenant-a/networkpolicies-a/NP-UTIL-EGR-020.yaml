@@ -1,0 +1,21 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: np-l3l4-egress-allow-dns
+  namespace: vcl-t001-dev
+  annotations:
+    fcp/policyId: "NP-UTIL-EGR-020"
+    fcp/intent: "Allow egress to kube-dns for name resolution"
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP

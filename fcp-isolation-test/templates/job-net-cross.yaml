@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-net-cross-{{ .Values.tenant }}
+  namespace: {{ .Values.namespace }}     # where this Job runs
+  labels:
+    fcp/control: "CTRL-NET-CROSS"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit | default 0 }}
+  ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | default 600 }}
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: test
+        image: {{ .Values.images.curl | default "curlimages/curl:8.4.0" }}
+        command: ["/bin/sh","-lc"]
+        args:
+        - |
+          set -eu
+          SVC="{{ .Values.echoServiceName | default "echo" }}"
+          TARGET_NS="{{ .Values.targetNamespace }}"   # the *other* tenant
+          URL="http://${SVC}.${TARGET_NS}.svc.cluster.local:{{ .Values.echoPort | default 80 }}/"
+          code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "$URL" || true)
+          if [ "$code" = "200" ]; then
+            echo "CONTROL 1 (cross) FAILED — cross-tenant ALLOWED (HTTP 200)"
+            exit 1
+          else
+            echo "CONTROL 1 (cross) PASSED — cross-tenant BLOCKED (HTTP=${code:-<no response>})"
+            exit 0
+          fi

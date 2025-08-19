@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: echo, namespace: vcl-t002-dev }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: echo } }
+  template:
+    metadata: { labels: { app: echo } }
+    spec:
+      containers:
+      - name: echo
+        image: ealen/echo-server:0.9
+        ports: [{ containerPort: 8080 }]

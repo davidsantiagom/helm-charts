@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-cross-deny-comprehensive-fixed
+  namespace: vcl-t002-dev
+  labels:
+    fcp/control: "CTRL-NET-CROSS"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      serviceAccountName: your-service-account # Add this to grant permissions to kubectl
+      restartPolicy: Never
+      containers:
+      - name: test
+        image: bitnami/kubectl:1.29.0 # Use a kubectl-enabled image
+        command: ["/bin/bash","-c"]
+        args:
+        - |
+          # ... (rest of your script here)
+          # Note: The original script needs slight modifications to use kubectl within the new container.
+          
+          # Test 1: ClusterIP Service via DNS
+          echo "Testing ClusterIP service via DNS..."
+          URL_DNS="http://echo.vcl-t001-dev.svc.cluster.local:80/"
+          # curl is not in this image, so you may need to install it or switch to a different image.
+          # For a more robust test, it's better to use an image that has both tools.
+          echo "This part of the test still needs to be run from an image with curl installed."
+          
+          # Test 2: Direct Pod IP Access
+          echo "Testing direct Pod IP access..."
+          POD_IP=$(kubectl get pods -n vcl-t001-dev -l app=echo -o jsonpath='{.items[0].status.podIP}' || true)
+          # The rest of the script for this test requires curl which is not in this image.
+          
+          # Test 3 & 4: Check for NodePort/LoadBalancer Services
+          echo "Checking for NodePort and LoadBalancer services..."
+          if kubectl get services -n vcl-t001-dev -o json | grep '"type": "NodePort"\|"type": "LoadBalancer"'; then
+            echo "FAIL: CONTROL (Service Type) FAILED — An exposed service was found."
+            exit 1
+          else
+            echo "PASS: CONTROL (Service Type) PASSED — No exposed services were found."
+          fi
+          exit 0

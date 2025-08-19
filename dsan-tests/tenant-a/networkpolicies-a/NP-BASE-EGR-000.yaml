@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-l3l4-egress-deny-all
+  namespace: vcl-t001-dev
+  annotations:
+    fcp/policyId: "NP-BASE-EGR-000"
+    fcp/intent: "Default deny all egress"
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress: []
