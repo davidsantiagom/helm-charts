@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  namespace: vcl-t002-dev
+resources:
+  - NP-BASE-ING-000.yaml
+  - NP-BASE-EGR-000.yaml
+  - NP-UTIL-EGR-020.yaml
+  - NP-UTIL-ING-010.yaml   
+  - NP-UTIL-EGR-010.yaml

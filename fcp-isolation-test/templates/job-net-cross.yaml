@@ -8,7 +8,8 @@ metadata:
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-weight": "10"
-    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+    "helm.sh/hook-delete-policy": before-hook-creation
+    # "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
   backoffLimit: {{ .Values.job.backoffLimit | default 0 }}
   ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | default 600 }}
@@ -23,12 +24,13 @@ spec:
         - |
           set -eu
           SVC="{{ .Values.echoServiceName | default "echo" }}"
-          TARGET_NS="{{ .Values.targetNamespace }}"   # the *other* tenant
+          TARGET_NS="{{ .Values.targetNamespace }}"
           URL="http://${SVC}.${TARGET_NS}.svc.cluster.local:{{ .Values.echoPort | default 80 }}/"
           code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "$URL" || true)
+
           if [ "$code" = "200" ]; then
             echo "CONTROL 1 (cross) FAILED — cross-tenant ALLOWED (HTTP 200)"
-            exit 1
+            {{- if not .Values.job.softFail }} exit 1 {{- else }} exit 0 {{- end }}
           else
             echo "CONTROL 1 (cross) PASSED — cross-tenant BLOCKED (HTTP=${code:-<no response>})"
             exit 0

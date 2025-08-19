@@ -9,9 +9,10 @@ metadata:
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-weight": "10"              # order (verify can be 99)
-    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+    "helm.sh/hook-delete-policy": before-hook-creation
+    # "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
-  backoffLimit: {{ .Values.job.backoffLimit | default 3 }}
+  backoffLimit: {{ .Values.job.backoffLimit | default 0 }}
   ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | default 120 }}
   template:
     spec:
@@ -25,11 +26,12 @@ spec:
           set -eu
           URL="http://echo.{{ .Values.namespace }}.svc.cluster.local:80/"
           code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "$URL" || true)
+
           if [ "$code" = "200" ]; then
             echo "CONTROL 1 (intra) PASSED — HTTP 200 from $URL"
             exit 0
           else
             echo "CONTROL 1 (intra) FAILED — HTTP=${code:-<none>} from $URL"
-            exit 1
+            {{- if not .Values.job.softFail }} exit 1 {{- else }} exit 0 {{- end }}
           fi
 

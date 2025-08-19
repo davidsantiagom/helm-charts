@@ -1,72 +1,74 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: job-sched-allow-{{ .Values.tenant }}
+  name: job-sched-scan-{{ .Values.tenant }}
   namespace: {{ .Values.namespace }}
   labels:
-    fcp/control: "CTRL-SCHED-VERIFY"
+    fcp/control: "CTRL-SCHED-SCAN"
   annotations:
     "helm.sh/hook": test
     "helm.sh/hook-weight": "30"
-    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+    "helm.sh/hook-delete-policy": before-hook-creation
+    # "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
 spec:
-  backoffLimit: {{ .Values.job.backoffLimit | default 3 }}
+  backoffLimit: {{ .Values.job.backoffLimit | default 1 }}
   ttlSecondsAfterFinished: {{ .Values.job.ttlSecondsAfterFinished | default 600 }}
   template:
     spec:
       serviceAccountName: {{ .Values.saName | default "sched-verify" }}
       restartPolicy: Never
-      securityContext:
-        runAsNonRoot: true
       containers:
-      - name: verifier
-        image: {{ .Values.images.verifier | default "python:3.12-alpine" }}
-        command: ["/bin/sh","-lc"]
-        args:
-        - |
-          set -eu
-          cat << 'PY' > /verifier.py
-          import json, os, sys, ssl, urllib.request, urllib.parse
-          API = "https://kubernetes.default.svc"
-          NS_HOST = os.environ["NS_HOST"]
-          NS_VIRT = os.environ["NS_VIRT"]
-          EXPECT  = os.environ["EXPECT"]
-          token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-          ca_path    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-          with open(token_path, "r") as f:
-              token = f.read().strip()
-          ctx = ssl.create_default_context(cafile=ca_path)
-          def get(path, params=None):
-              if params:
-                  path = f"{path}?{urllib.parse.urlencode(params)}"
-              req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {token}"})
-              with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
-                  return json.loads(r.read().decode())
-          labels = f"vcluster.loft.sh/namespace={NS_VIRT},fcp/control=CTRL-SCHED-ALLOW"
-          data = get(f"/api/v1/namespaces/{NS_HOST}/pods", params={"labelSelector": labels})
-          items = data.get("items", [])
-          if not items:
-              print("No pod found for CTRL-SCHED-ALLOW"); sys.exit(2)
-          pod = items[0]
-          pod_name = pod["metadata"]["name"]
-          node_name = pod["spec"].get("nodeName")
-          if not node_name:
-              print(f"Pod {pod_name} has no nodeName yet (Pending)"); sys.exit(3)
-          node = get(f"/api/v1/nodes/{node_name}")
-          tenant = node.get("metadata", {}).get("labels", {}).get("tenancy.fcp.io/tenant", "")
-          print(f"Pod: {pod_name}")
-          print(f"Node: {node_name}")
-          print(f"Node tenancy label: {tenant}")
-          if tenant == EXPECT:
-              print(f"CONTROL 3 (allow) PASSED — node has tenancy.fcp.io/tenant={EXPECT}"); sys.exit(0)
-          else:
-              print(f"CONTROL 3 (allow) FAILED — node label is '{tenant}' (expected {EXPECT})"); sys.exit(1)
-          PY
-          python /verifier.py
-        env:
-        - name: NS_HOST
-          value: "{{ .Values.namespace }}"
-        - name: NS_VIRT
-          value: "{{ .Values.virtualNamespace }}"
-        - name: EXPECT
-          value: "{{ .Values.tenant }}"
+        - name: verifier
+          image: bitnami/kubectl:latest
+          command: ["/bin/sh","-c"]
+          args:
+          - |
+            set -eu
+            NS="{{ .Values.namespace }}"                # host namespace
+            VC="{{ .Values.vclusterName }}"             # e.g. t002-dev
+            EXPECT="{{ .Values.tenant }}"               # e.g. t002
+            SEL="vcluster.loft.sh/managed-by=${VC}"
+            TMP="/tmp/pods.tsv"
+
+            echo "Scanning pods in ns=${NS} with selector: ${SEL}"
+
+            # name|node|phase (one line per pod)
+            kubectl -n "${NS}" get pods -l "${SEL}" -o json \
+              | jq -r '.items[] | [.metadata.name, (.spec.nodeName // ""), (.status.phase // "")] | @tsv' > "$TMP"
+
+            if [ ! -s "$TMP" ]; then
+              echo "No pods matched selector in ${NS}."
+              {{- if not .Values.job.softFail }} exit 2 {{- else }} exit 0 {{- end }}
+            fi
+
+            printf "%-40s %-12s %-40s %s\n" "POD" "PHASE" "NODE" "RESULT"
+            printf "%-40s %-12s %-40s %s\n" "----------------------------------------" "------------" "----------------------------------------" "------------------------"
+
+            TOTAL=0; OK=0; BAD=0; PENDING=0; FAIL=0
+            # read with a stable delimiter (tab) without using $'\t'
+            TAB="$(printf '\t')"
+            while IFS="$TAB" read -r pod node phase; do
+              TOTAL=$((TOTAL+1))
+              if [ -z "$node" ] || [ "$phase" != "Running" ]; then
+                printf "%-40s %-12s %-40s %s\n" "$pod" "${phase:-Pending}" "<none>" "PENDING"
+                PENDING=$((PENDING+1))
+                continue
+              fi
+              tlabel="$(kubectl get node "$node" -o jsonpath='{.metadata.labels.tenancy\.fcp\.io/tenant}')"
+              if [ "$tlabel" = "$EXPECT" ]; then
+                printf "%-40s %-12s %-40s %s\n" "$pod" "$phase" "$node" "OK (tenant=$tlabel)"
+                OK=$((OK+1))
+              else
+                printf "%-40s %-12s %-40s %s\n" "$pod" "$phase" "$node" "WRONG (tenant=$tlabel expect=$EXPECT)"
+                BAD=$((BAD+1)); FAIL=1
+              fi
+            done < "$TMP"
+
+            echo "Summary: total=$TOTAL ok=$OK wrong=$BAD pending=$PENDING"
+            if [ "$FAIL" -eq 0 ] && [ "$PENDING" -eq 0 ]; then
+              echo "CONTROL (sched-scan) PASSED — all scheduled pods run on nodes labeled tenancy.fcp.io/tenant=${EXPECT}"
+              exit 0
+            else
+              echo "CONTROL (sched-scan) FAILED — see table above."
+              {{- if not .Values.job.softFail }} exit 1 {{- else }} exit 0 {{- end }}
+            fi
