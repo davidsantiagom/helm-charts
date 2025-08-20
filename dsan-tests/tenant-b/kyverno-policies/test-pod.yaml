@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-schedule-pod
+  namespace: vcl-t002-dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:stable-alpine
+  # No nodeSelector declared initially

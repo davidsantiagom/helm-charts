@@ -1,0 +1,35 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-nodeselector-by-tenantlabel
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: add-nodeselector
+      match:
+        any:
+        - resources:
+            kinds: ["Pod"]
+            namespaceSelector:
+              matchLabels:
+                tenancy.fcp.io/tenant: "t002"
+      mutate:
+        patchStrategicMerge:
+          spec:
+            nodeSelector:
+              tenancy.fcp.io/tenant: "t002"
+    - name: require-nodeselector
+      match:
+        any:
+        - resources:
+            kinds: ["Pod"]
+            namespaceSelector:
+              matchLabels:
+                tenancy.fcp.io/tenant: "t002"
+      validate:
+        message: "Pods in tenant t002 must target nodes with fcp.tenancy.io=t002."
+        pattern:
+          spec:
+            nodeSelector:
+              tenancy.fcp.io/tenant: "t002"

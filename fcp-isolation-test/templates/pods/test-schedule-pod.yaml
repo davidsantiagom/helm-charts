@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fcp-isolation-test-sched-pod
+  namespace: {{ .Values.namespace }}
+spec:
+  containers:
+  - name: nginx
+    image: nginx:stable-alpine
+  # No nodeSelector declared initially

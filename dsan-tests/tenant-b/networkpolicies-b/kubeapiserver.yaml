@@ -1,0 +1,16 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: np-l3l4-egress-allow-kubeapi
+  namespace: vcl-t002-dev
+spec:
+  endpointSelector:
+    matchLabels:
+      job-name: job-sched-scan-t002
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP

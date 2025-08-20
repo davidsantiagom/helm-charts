@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-collect-{{ .Values.tenant }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "99"   # run after the other tests
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: {{ .Values.saName | default "sched-verify" }}
+      restartPolicy: Never
+      containers:
+      - name: collector
+        image: {{ .Values.images.verifier | default "bitnami/kubectl:latest" }}
+        command: ["/bin/sh","-lc"]
+        args:
+        - |
+          set -euo pipefail
+          NS="{{ .Values.namespace }}"
+          JOBS="test-net-intra-{{ .Values.tenant }} test-net-cross-{{ .Values.tenant }} job-sched-allow-{{ .Values.tenant }}"
+          echo "== Collecting test results from namespace: ${NS}"
+          rc=0
+          for j in $JOBS; do
+            echo "---- $j: waiting up to 120s"
+            kubectl -n "$NS" wait --for=condition=complete --timeout=120s job/$j || true
+            echo "---- $j: logs"
+            if ! kubectl -n "$NS" logs job/$j; then
+              echo "WARN: could not read logs for $j"
+            fi
+            # summarize result
+            s=$(kubectl -n "$NS" get job/$j -o jsonpath='{.status.succeeded}' 2>/dev/null || echo "")
+            f=$(kubectl -n "$NS" get job/$j -o jsonpath='{.status.failed}' 2>/dev/null || echo "")
+            echo "RESULT $j: succeeded=${s:-0} failed=${f:-0}"
+            if [ "${f:-0}" != "0" ] || [ "${s:-0}" = "0" ]; then rc=1; fi
+            echo
+          done
+          exit $rc

@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-egress-allow-all-operator
+  namespace: <vcluster-host-ns>
+  annotations:
+    fcp/policyId: "NP-OPS-EGR-298"
+    fcp/intent: "Operator pods: allow all egress (exception)"
+    fcp/scope: "selector:operator=true" # TODO: use a label selector for operator pods
+    fcp/component: "ops"
+spec:
+  podSelector:
+    matchLabels:
+      fcp/operator: "true"
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - {}          # all destinations

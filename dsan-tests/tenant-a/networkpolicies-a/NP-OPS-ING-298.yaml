@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-ingress-allow-all-operator
+  namespace: <vcluster-host-ns>
+  annotations:
+    fcp/policyId: "NP-OPS-ING-298"
+    fcp/intent: "Operator pods: allow all ingress (exception)"
+    fcp/scope: "selector:operator=true" # TODO: use a label selector for operator pods
+    fcp/component: "ops"
+spec:
+  podSelector:
+    matchLabels:
+      fcp/operator: "true"
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - {}          # all sources (in-cluster + external)
