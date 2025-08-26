@@ -2,7 +2,9 @@ tenant: t002
 namespace: vcl-t002-dev
 vclusterName: t002-dev         # this Job runs here
 targetNamespace: vcl-t001-dev  # curl targets this other tenant
-echoServiceName: echo
+echoServiceName: fcp-isolation-test-echohelm uninstall fcp-tests -n isolation-tests
+
+
 echoPort: 80
 images:
   curl: curlimages/curl:8.4.0
