@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pass-limit-ranges
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+    - name: sleep
+      image: busybox:1.36
+      command: ["sh", "-c", "echo OK && sleep 3600"]
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "128Mi"
+          ephemeral-storage: "512Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+          ephemeral-storage: "2Gi"

@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-sched-scan-{{ .Values.tenant }}
+  labels:
+    fcp/control: "CTRL-SCHED-SCAN"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "{{ .Values.test.hookWeight.schedTest }}"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-failed
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ .Values.saName }}
+  containers:
+  - name: verifier
+    image: {{ .Values.images.kubectl }}
+    command: ["/bin/sh", "-c"]
+    args:
+    - |-
+      set -eu
+      
+      # Color definitions
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      YELLOW='\033[1;33m'
+      BOLD='\033[1m'
+      NC='\033[0m' # No Color
+      
+      echo "Testing pod scheduling constraints..."
+      
+      NS="{{ .Values.namespace }}"
+      EXPECT="{{ .Values.tenant }}"
+
+      echo "Scanning pods in namespace: ${NS}"
+      echo "Expected tenant label: ${EXPECT}"
+      
+      # Wait for any pending pods to be scheduled or fail
+      sleep 15
+      
+      # Get all pods, excluding test pods - output as JSON for easier parsing
+      kubectl -n "${NS}" get pods -o json > /tmp/all_pods.json
+      
+      # Filter and extract workload pods
+      jq -r '.items[] 
+        | select(
+            (.metadata.labels."fcp/control" // "") == "" and
+            (.metadata.name | startswith("test-") | not) and
+            (.metadata.name | startswith("fcp-isolation-test-") | not)
+          )
+        | "\(.metadata.name)|\(.spec.nodeName // "")|\(.status.phase // "")"' /tmp/all_pods.json > /tmp/workload_pods.txt
+
+      if [ ! -s /tmp/workload_pods.txt ]; then
+        printf "${YELLOW}No workload pods found in namespace ${NS} (test pods excluded)${NC}\n"
+        printf "${GREEN}${BOLD}PASSED CTRL-SCHED-SCAN - no workload pods to validate${NC}\n"
+        exit 0
+      fi
+
+      echo "Workload pods found:"
+      cat /tmp/workload_pods.txt
+
+      TOTAL=0; OK=0; BAD=0; PENDING=0
+      BAD_PODS=""
+      
+      while IFS='|' read -r pod node phase; do
+        [ -z "$pod" ] && continue
+        TOTAL=$((TOTAL+1))
+        
+        if [ -z "$node" ] || [ "$phase" != "Running" ]; then
+          printf "${YELLOW}Pod ${pod}: ${phase:-Pending} (no node assigned)${NC}\n"
+          PENDING=$((PENDING+1))
+          [ -n "$BAD_PODS" ] && BAD_PODS="${BAD_PODS}, "
+          BAD_PODS="${BAD_PODS}${pod}(pending)"
+          continue
+        fi
+        
+        tlabel="$(kubectl get node "$node" -o jsonpath='{.metadata.labels.tenancy\.fcp\.io/tenant}' 2>/dev/null || echo "none")"
+        
+        if [ "$tlabel" = "$EXPECT" ]; then
+          printf "${GREEN}Pod ${pod}: OK on node ${node} (tenant=${tlabel})${NC}\n"
+          OK=$((OK+1))
+        else
+          printf "${RED}Pod ${pod}: WRONG on node ${node} (tenant=${tlabel}, expected=${EXPECT})${NC}\n"
+          BAD=$((BAD+1))
+          [ -n "$BAD_PODS" ] && BAD_PODS="${BAD_PODS}, "
+          BAD_PODS="${BAD_PODS}${pod}(node:${node},tenant:${tlabel})"
+        fi
+      done < /tmp/workload_pods.txt
+
+      echo ""
+      echo "Summary: total=${TOTAL}, correct=${OK}, wrong=${BAD}, pending=${PENDING}"
+      
+      if [ "$BAD" -eq 0 ] && [ "$PENDING" -eq 0 ] && [ "$OK" -gt 0 ]; then
+        printf "${GREEN}${BOLD}PASSED CTRL-SCHED-SCAN - all workload pods on correct tenant nodes${NC}\n"
+      elif [ "$BAD" -eq 0 ] && [ "$PENDING" -gt 0 ]; then
+        printf "${RED}${BOLD}FAILED CTRL-SCHED-SCAN - pending pods: ${BAD_PODS}${NC}\n"
+      elif [ "$BAD" -gt 0 ]; then
+        printf "${RED}${BOLD}FAILED CTRL-SCHED-SCAN - misscheduled pods: ${BAD_PODS}${NC}\n"
+      else
+        printf "${GREEN}${BOLD}PASSED CTRL-SCHED-SCAN - no workload pods found${NC}\n"
+      fi

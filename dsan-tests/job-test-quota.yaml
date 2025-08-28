@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-quota-limits-{{ .Values.tenant }}
+  labels:
+    fcp/control: "CTRL-QUOTA-LR"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "{{ .Values.test.hookWeight.quotaTest | default "15" }}"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-failed
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ .Values.saName }}
+  containers:
+  - name: verifier
+    image: {{ .Values.images.kubectl }}
+    command: ["/bin/sh","-c"]
+    args:
+    - |-
+      set -eu
+
+      RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
+
+      NS="{{ .Values.namespace }}"
+      echo "Validating LimitRanges & ResourceQuotas in namespace: ${NS}"
+
+      FAILS=0
+
+      # --- 1) Namespace-level presence checks (soft fail) ---
+      LR_COUNT="$(kubectl -n "${NS}" get limitranges -o json 2>/dev/null | jq '.items | length' 2>/dev/null || echo 0)"
+      if [ "${LR_COUNT}" -eq 0 ]; then
+        printf "${RED}${BOLD}FAILED CTRL-QUOTA-LR - no LimitRange found in ${NS}${NC}\n"
+        FAILS=$((FAILS+1))
+      else
+        echo "LimitRanges found: ${LR_COUNT}"
+      fi
+
+      RQ_COUNT="$(kubectl -n "${NS}" get resourcequota -o json 2>/dev/null | jq '.items | length' 2>/dev/null || echo 0)"
+      if [ "${RQ_COUNT}" -eq 0 ]; then
+        printf "${RED}${BOLD}FAILED CTRL-QUOTA-LR - no ResourceQuota found in ${NS}${NC}\n"
+        FAILS=$((FAILS+1))
+      else
+        echo "ResourceQuotas found: ${RQ_COUNT}"
+      fi
+
+      # --- 2) Workload pod scan (exclude test pods) ---
+      echo "Scanning workload pods (excluding test pods)..."
+      kubectl -n "${NS}" get pods -o json > /tmp/all_pods.json || echo '{"items":[]}' > /tmp/all_pods.json
+
+      jq -r '.items[]
+        | select(
+            (.metadata.labels."fcp/control" // "") == "" and
+            (.metadata.name | startswith("test-") | not) and
+            (.metadata.name | startswith("fcp-isolation-test-") | not)
+          )
+        | .metadata.name' /tmp/all_pods.json > /tmp/workload_pods.txt
+
+      if [ ! -s /tmp/workload_pods.txt ]; then
+        printf "${YELLOW}No workload pods found in ${NS} (tests excluded).${NC}\n"
+        if [ "${FAILS}" -eq 0 ]; then
+          printf "${GREEN}${BOLD}PASSED CTRL-QUOTA-LR - LR/RQ present; no workload pods to validate${NC}\n"
+        else
+          printf "${RED}${BOLD}FAILED CTRL-QUOTA-LR - LR/RQ missing; no workload pods to validate${NC}\n"
+        fi
+        exit 0
+      fi
+
+      echo "Workload pods:"
+      cat /tmp/workload_pods.txt
+
+      TOTAL=0; OK=0; BAD=0
+      BAD_ENTRIES=""
+
+      while IFS= read -r POD; do
+        [ -z "$POD" ] && continue
+        TOTAL=$((TOTAL+1))
+
+        kubectl -n "${NS}" get pod "${POD}" -o json > /tmp/pod.json || { echo '{}' > /tmp/pod.json; }
+
+        jq -r '
+          def rows($t; $path):
+            ($path // []) | to_entries[]? | [ $t, .value.name,
+              (.value.resources.requests.cpu // ""), (.value.resources.requests.memory // ""),
+              (.value.resources.limits.cpu // ""),   (.value.resources.limits.memory // "") ] | @tsv;
+
+          (rows("c"; .spec.containers) // empty),
+          (rows("i"; .spec.initContainers) // empty)
+        ' /tmp/pod.json > /tmp/containers.tsv
+
+        if [ ! -s /tmp/containers.tsv ]; then
+          BAD=$((BAD+1)); FAILS=$((FAILS+1))
+          [ -n "$BAD_ENTRIES" ] && BAD_ENTRIES="${BAD_ENTRIES}, "
+          BAD_ENTRIES="${BAD_ENTRIES}${POD}(no-containers)"
+          printf "${RED}Pod ${POD}: no containers found${NC}\n"
+          continue
+        fi
+
+        POD_BAD=0
+        while IFS=$'\t' read -r T CNAME CREQ MREQ CLIM MLIM; do
+          MISS=""
+          [ -z "$CREQ" ] && MISS="${MISS} cpu.request"
+          [ -z "$MREQ" ] && MISS="${MISS} mem.request"
+          [ -z "$CLIM" ] && MISS="${MISS} cpu.limit"
+          [ -z "$MLIM" ] && MISS="${MISS} mem.limit"
+
+          if [ -n "$MISS" ]; then
+            POD_BAD=1
+            printf "${RED}Pod ${POD} container ${CNAME}: missing${MISS}${NC}\n"
+          fi
+        done < /tmp/containers.tsv
+
+        if [ "${POD_BAD}" -eq 0 ]; then
+          OK=$((OK+1))
+          printf "${GREEN}Pod ${POD}: all containers have cpu/mem requests & limits${NC}\n"
+        else
+          BAD=$((BAD+1)); FAILS=$((FAILS+1))
+          [ -n "$BAD_ENTRIES" ] && BAD_ENTRIES="${BAD_ENTRIES}, "
+          BAD_ENTRIES="${BAD_ENTRIES}${POD}"
+        fi
+      done < /tmp/workload_pods.txt
+
+      echo ""
+      echo "Summary: total=${TOTAL}, ok=${OK}, bad=${BAD}, lr=${LR_COUNT}, rq=${RQ_COUNT}"
+
+      if [ "${FAILS}" -eq 0 ]; then
+        printf "${GREEN}${BOLD}PASSED CTRL-QUOTA-LR - LR/RQ present; all workload containers have cpu/mem requests & limits${NC}\n"
+      else
+        printf "${RED}${BOLD}FAILED CTRL-QUOTA-LR - issues found (pods: ${BAD_ENTRIES:-none}; lr=${LR_COUNT}; rq=${RQ_COUNT})${NC}\n"
+      fi

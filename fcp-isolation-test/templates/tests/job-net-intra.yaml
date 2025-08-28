@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-net-intra-{{ .Values.tenant }}
+  labels:
+    fcp/control: "CTRL-NET-INTRA"
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "{{ .Values.test.hookWeight.netTests }}"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-failed
+spec:
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: {{ .Values.images.curl }}
+    env:
+    - name: NS
+      value: "{{ .Values.namespace }}"
+    - name: ECHO_SVC
+      value: "{{ .Values.echoServiceName }}"
+    - name: ECHO_PORT
+      value: "{{ .Values.echoPort }}"
+    command: ["/bin/sh", "-c"]
+    args:
+    - |-
+      set -eu
+      
+      # Color definitions
+      RED='\033[0;31m'
+      GREEN='\033[0;32m'
+      BOLD='\033[1m'
+      NC='\033[0m' # No Color
+      
+      echo "Testing intra-tenant network connectivity..."
+      URL="http://${ECHO_SVC}.${NS}.svc.cluster.local:${ECHO_PORT}/"
+      echo "Attempting connection to: ${URL}"
+      
+      code=$(timeout 10 curl -sS -m 5 -o /dev/null -w '%{http_code}' "$URL" 2>/dev/null || echo "failed")
+      
+      if [ "$code" = "200" ]; then
+        printf "${GREEN}${BOLD}PASSED CTRL-NET-INTRA - intra-tenant traffic ALLOWED (HTTP 200)${NC}\n"
+        printf "${GREEN}Intra-tenant network connectivity is working correctly${NC}\n"
+      else
+        printf "${RED}${BOLD}FAILED CTRL-NET-INTRA - intra-tenant traffic BLOCKED (HTTP ${code})${NC}\n"
+        printf "${RED}Intra-tenant network connectivity is NOT working${NC}\n"
+      fi

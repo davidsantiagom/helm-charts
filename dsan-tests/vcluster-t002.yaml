@@ -1053,13 +1053,13 @@ policies:
     annotations: {}
     # Quota are the quota options
     quota:
-      requests.cpu: 10
-      requests.memory: 20Gi
-      requests.storage: "100Gi"
-      requests.ephemeral-storage: 60Gi
-      limits.cpu: 20
-      limits.memory: 40Gi
-      limits.ephemeral-storage: 160Gi
+      requests.cpu: 2
+      requests.memory: 2.5Gi
+      requests.storage: "50Gi"
+      requests.ephemeral-storage: 10Gi
+      limits.cpu: 4
+      limits.memory: 6Gi
+      limits.ephemeral-storage: 24Gi
       services.nodeports: 0
       services.loadbalancers: 1
       count/endpoints: 40
@@ -1067,7 +1067,7 @@ policies:
       count/services: 20
       count/secrets: 100
       count/configmaps: 100
-      count/persistentvolumeclaims: 20
+      count/persistentvolumeclaims: 5
     # ScopeSelector is the resource quota scope selector
     scopeSelector:
       matchExpressions: []
@@ -1078,23 +1078,27 @@ policies:
   limitRange:
     # Enabled defines if the limit range should be deployed by vCluster. "auto" means that if resourceQuota is enabled,
     # the limitRange will be enabled as well.
-    enabled: auto
+    enabled: true
     labels: {}
     annotations: {}
     # Default are the default limits for the limit range
-    default:
-      ephemeral-storage: 8Gi
-      memory: 512Mi
-      cpu: "1"
+    default: # what gets set as limits if a pod doesn’t specify limits.
+      ephemeral-storage: 2Gi
+      memory: 256Mi
+      cpu: "200m"
     # DefaultRequest are the default request options for the limit range
-    defaultRequest:
-      ephemeral-storage: 3Gi
+    defaultRequest: # what a pod reserves if it forgets to set requests
+      ephemeral-storage: 512Mi
       memory: 128Mi
-      cpu: 100m
+      cpu: 50m
     # Min are the min limits for the limit range
     min: {}
     # Max are the max limits for the limit range
-    max: {}
+    max: {
+      cpu: "500m",
+      memory: "512Mi",
+      ephemeral-storage: "4Gi"
+    }
   
   # NetworkPolicy specifies network policy options.
   networkPolicy:

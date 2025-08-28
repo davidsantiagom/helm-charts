@@ -1,15 +1,19 @@
 tenant: t002
 namespace: vcl-t002-dev
-vclusterName: t002-dev         # this Job runs here
-targetNamespace: vcl-t001-dev  # curl targets this other tenant
-echoServiceName: fcp-isolation-test-echohelm uninstall fcp-tests -n isolation-tests
-
+vclusterName: t002-dev
+targetNamespace: vcl-t001-dev
+echoServiceName: fcp-isolation-test-echo
+saName: sched-verify
 
 echoPort: 80
 images:
   curl: curlimages/curl:8.4.0
-  verifier: bitnami/kubectl:latest
-job:
-  backoffLimit: 0
-  ttlSecondsAfterFinished: 600
-  softFail: true 
+  kubectl: bitnami/kubectl:latest
+
+# Test execution settings
+test:
+  timeout: 300
+  hookWeight:
+    netTests: "10"
+    schedTest: "20"
+    aggregate: "30"

@@ -1,31 +1,46 @@
+# ServiceAccount the test pods use
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: sched-verify
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}   # use release ns where test pods run
 
 ---
+# ClusterRole with all reads needed by sched-scan and aggregator
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: sched-verify-read-{{ .Values.tenant }}
 rules:
-- apiGroups: [""]
-  resources: ["pods","nodes"]
-  verbs: ["get","list"]
-- apiGroups: ["batch"]
-  resources: ["jobs"]
-  verbs: ["get","list"]
+  # read pods anywhere (sched-scan lists pods in tenant ns; aggregator reads test pods in release nS
+  # read pod LOGS (needed by aggregator to parse PASSED/FAILED)
+  - apiGroups: [""]
+    resources: ["pods","pods/log"]
+    verbs: ["get","list","watch"]
+
+  # read nodes cluster-wide (for node label tenancy check)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get","list","watch"]
+
+  # (optional) if you ever inspect Jobs, keep this
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get","list"]
+  - apiGroups: [""]
+    resources: ["limitranges", "resourcequotas"]
+    verbs: ["get","list","watch"]
 
 ---
+# Bind the ClusterRole to the SA used by test pods (in the release namespace)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: sched-verify-read-binding-{{ .Values.tenant }}
 subjects:
-- kind: ServiceAccount
-  name: sched-verify
-  namespace: {{ .Values.namespace }}
+  - kind: ServiceAccount
+    name: sched-verify
+    namespace: {{ .Release.Namespace }}  # same ns as the test pods
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

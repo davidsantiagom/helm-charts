@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fail-limit-ranges
+  namespace: default
+spec:
+  restartPolicy: Never
+  containers:
+    - name: sleep
+      image: busybox:1.36
+      command: ["sh", "-c", "echo TOO BIG && sleep 3600"]
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+          ephemeral-storage: "1Gi"
+        limits:
+          cpu: "1500m"            # > max.cpu "1"  (violates LimitRange if max set)
+          memory: "2Gi"           # > max.memory "1Gi"
+          ephemeral-storage: "6Gi" # > max.eph "4Gi"
